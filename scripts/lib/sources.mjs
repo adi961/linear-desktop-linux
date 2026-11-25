@@ -11,7 +11,7 @@ import { BuildError, download, fetchText, hashFile, log } from './util.mjs';
 // Fetches `url` into `file` unless a cached copy already matches `digest`
 // ({ algorithm, encoding, value }). A cached copy that doesn't match is
 // downloaded again; a fresh download that doesn't match is an error.
-async function fetchVerified({ url, file, digest }) {
+export async function fetchVerified({ url, file, digest }) {
   const matches = async () => (await hashFile(file, digest.algorithm, digest.encoding)) === digest.value;
   if (existsSync(file) && (await matches())) {
     log(`using cached ${basename(file)} (${digest.algorithm} verified)`);

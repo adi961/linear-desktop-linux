@@ -7,7 +7,10 @@ settings:
 importers:
 
   .:
-    devDependencies:
+    dependencies:
+      7z-wasm:
+        specifier: ^1.2.0
+        version: 1.2.0
       '@electron/asar':
         specifier: ^4.3.4
         version: 4.3.4
@@ -16,6 +19,11 @@ importers:
         version: 2.1.3
 
 packages:
+
+  7z-wasm@1.2.0:
+    resolution: {integrity: sha512-AZjtWXFleAe5nQ27JYISs70cICjO0zZr4LU45I9pXKcrhG0qiEWgq3Vjwr9JHHihFLuqgc7uSHYVn/z3vXCjdw==}
+    engines: {node: '>=8.0.0'}
+    hasBin: true
 
   '@electron/asar@4.3.4':
     resolution: {integrity: sha512-wMqBW59rlXFknVi29koZopvKlHBEOy2m48kHagjOGV+oQ8rxMjHmPvfdRVb0J+5j6eRHsoU0WotaBNCaepVLIA==}
@@ -58,7 +66,15 @@ packages:
     resolution: {integrity: sha512-1pTbQqH1wIwMi/eleQ5leFTTCkzFsPcgXNjwOA8YGGW/W4/kHT3dssE7Z6NH+zuqNLOzOB0uaD61yl7cAcVhgg==}
     engines: {node: 18 || 20 || >=22}
 
+  readline-sync@1.4.10:
+    resolution: {integrity: sha512-gNva8/6UAe8QYepIQH/jQ2qn91Qj0B9sYjMBBs3QOB8F2CXcKgLxQaJRP76sWVRQt+QU+8fAkCbCvjjMFu7Ycw==}
+    engines: {node: '>= 0.8.0'}
+
 snapshots:
+
+  7z-wasm@1.2.0:
+    dependencies:
+      readline-sync: 1.4.10
 
   '@electron/asar@4.3.4':
     dependencies:
@@ -94,3 +110,5 @@ snapshots:
     dependencies:
       lru-cache: 11.5.3
       minipass: 7.1.3
+
+  readline-sync@1.4.10: {}

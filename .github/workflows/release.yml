@@ -1,0 +1,32 @@
+# Publishes the builder that get.sh downloads. The release contains only this
+# project's code and its npm dependencies, never Linear's app.
+name: release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+      - name: Tag matches package.json
+        run: test "${GITHUB_REF_NAME}" = "v$(node -p 'require("./package.json").version')"
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test
+      - run: pnpm package-builder
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --generate-notes \
+            dist/release/linear-desktop-linux-builder.tar.gz dist/release/SHA256SUMS

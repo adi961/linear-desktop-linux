@@ -9,10 +9,12 @@
 //   3. Patch the main process (lib/patches.mjs), add the Linux modules
 //      (src/app → /linux) and repack app.asar.
 //   4. Put app.asar into the Electron runtime, set the fuses, and add the
-//      desktop entry, icons, install.sh and a tarball.
+//      desktop entry, icons and install.sh. Optionally pack an AppImage
+//      (lib/appimage.mjs) and a tarball.
 //
-// The result is assembled in a staging directory and swapped into place, so
-// a failed build never leaves a half-written output behind.
+// Needs only Node 20.12+: archives are read with 7-Zip compiled to
+// WebAssembly, so no system tools are needed. The result is assembled in a staging directory and
+// swapped into place, so a failed build never leaves a half-written output.
 
 import { cp, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
@@ -22,6 +24,8 @@ import { createPackage, extractAll } from '@electron/asar';
 import { flipFuses, FuseV1Options, FuseVersion } from '@electron/fuses';
 import { applyPatches } from './lib/patches.mjs';
 import { detectElectronVersion, fetchElectron, fetchInstaller } from './lib/sources.mjs';
+import { buildAppImage, checkAppImagePrerequisites } from './lib/appimage.mjs';
+import { extract } from './lib/seven-zip.mjs';
 import { BuildError, log, run } from './lib/util.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -35,7 +39,8 @@ const USAGE = `Usage: node scripts/build.mjs [options]
   --sha512 <base64>     Installer SHA-512; required for versions older than the latest
   --out <dir>           Output directory (default: ./dist)
   --cache <dir>         Download cache (default: ./.cache)
-  --no-tarball          Skip creating the .tar.gz
+  --appimage            Also pack linear-<version>-linux-<arch>.AppImage
+  --tarball             Also pack the build as a .tar.gz
   -h, --help            Show this help`;
 
 function parseCli(argv) {
@@ -47,7 +52,8 @@ function parseCli(argv) {
       sha512: { type: 'string' },
       out: { type: 'string', default: join(ROOT, 'dist') },
       cache: { type: 'string', default: join(ROOT, '.cache') },
-      'no-tarball': { type: 'boolean', default: false },
+      appimage: { type: 'boolean', default: false },
+      tarball: { type: 'boolean', default: false },
       help: { type: 'boolean', short: 'h', default: false },
     },
   });
@@ -58,24 +64,23 @@ function parseCli(argv) {
     sha512: values.sha512,
     out: resolve(values.out),
     cache: resolve(values.cache),
-    tarball: !values['no-tarball'],
+    appimage: values.appimage,
+    tarball: values.tarball,
     help: values.help,
   };
 }
 
-const sevenZip = (...args) => run('7z', ['-y', '-bso0', '-bsp0', ...args]);
-
 // The NSIS installer holds one 7z per architecture with the installed files.
 async function extractWindowsApp(installer, arch, dir) {
   const payload = NSIS_PAYLOADS[arch];
-  await sevenZip('x', `-o${dir}`, installer, `$PLUGINSDIR/${payload}`);
-  await sevenZip('x', `-o${dir}`, join(dir, '$PLUGINSDIR', payload), 'Linear.exe', 'resources/app.asar');
+  await extract(installer, dir, { files: [`$PLUGINSDIR/${payload}`] });
+  await extract(join(dir, '$PLUGINSDIR', payload), dir, { files: ['Linear.exe', 'resources/app.asar'] });
   return { exe: join(dir, 'Linear.exe'), asar: join(dir, 'resources', 'app.asar') };
 }
 
 // Linear.exe's icon resources are square PNGs. Returns { [size]: path }.
 async function extractIcons(exe, dir) {
-  await sevenZip('e', `-o${dir}`, exe, '.rsrc/*/ICON/*', '-r');
+  await extract(exe, dir, { files: ['.rsrc/*/ICON/*'], flat: true });
   const icons = {};
   for (const name of await readdir(dir)) {
     const png = await readFile(join(dir, name));
@@ -112,7 +117,7 @@ async function buildAppAsar({ source, icon, version, dir, output }) {
 // Fuses match Linear's own build (no ELECTRON_RUN_AS_NODE, NODE_OPTIONS or
 // --inspect), plus OnlyLoadAppFromAsar.
 async function assembleRuntime({ electronZip, appAsar, dir }) {
-  await sevenZip('x', `-o${dir}`, electronZip);
+  await extract(electronZip, dir);
   await rm(join(dir, 'resources', 'default_app.asar'), { force: true });
   await rename(join(dir, 'electron'), join(dir, APP_ID));
   await rename(appAsar, join(dir, 'resources', 'app.asar'));
@@ -147,6 +152,7 @@ async function allOrFirstError(tasks) {
 }
 
 async function build(opts) {
+  if (opts.appimage) await checkAppImagePrerequisites();
   const installer = await fetchInstaller({ version: opts.version, sha512: opts.sha512, cacheDir: opts.cache });
   const name = `linear-${installer.version}-linux-${opts.arch}`;
   const work = join(opts.out, `.${name}.partial`);
@@ -182,14 +188,22 @@ async function build(opts) {
     const info = { linearVersion: installer.version, electronVersion, arch: opts.arch, patches };
     await writeFile(join(stage, 'BUILD-INFO.json'), JSON.stringify(info, null, 2) + '\n');
 
+    const stagedAppImage = join(work, `${name}.AppImage`);
+    if (opts.appimage) {
+      await buildAppImage({ dist: stage, arch: opts.arch, root: ROOT, workDir: work, cacheDir: opts.cache, output: stagedAppImage });
+    }
+
+    // Swap everything in at the end; artifacts of an earlier build of the
+    // same version that weren't rebuilt are removed rather than left stale.
     const dist = join(opts.out, name);
+    const appImage = opts.appimage ? `${dist}.AppImage` : undefined;
     const tarball = opts.tarball ? `${dist}.tar.gz` : undefined;
-    await rm(dist, { recursive: true, force: true });
-    await rm(`${dist}.tar.gz`, { force: true }); // never leave a stale tarball beside a new build
+    await Promise.all([dist, `${dist}.AppImage`, `${dist}.tar.gz`].map((p) => rm(p, { recursive: true, force: true })));
     await rename(stage, dist);
+    if (appImage) await rename(stagedAppImage, appImage);
     if (tarball) await run('tar', ['-czf', tarball, '-C', opts.out, name]);
-    log(`done: ${dist}`);
-    return { ...info, dist, tarball };
+    log(`done: ${appImage ?? dist}`);
+    return { ...info, dist, appImage, tarball };
   } finally {
     await rm(work, { recursive: true, force: true });
   }

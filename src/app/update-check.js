@@ -3,13 +3,14 @@
 // Replaces Linear's in-app updater, which the build switches off on Linux: it
 // can't replace a repackaged install, and Linear publishes no latest-linux.yml.
 // This checks the official feed instead and shows a desktop notification once
-// per new version, telling the user to rebuild or upgrade the package.
+// per new version, telling the user to run the installer again.
 
 const fs = require('node:fs');
 const path = require('node:path');
 const { app, net, Notification, shell } = require('electron');
 const { FEED_URL, parseLatestYml, compareVersions } = require('./release-feed.js');
 
+const PROJECT_URL = 'https://github.com/adi961/linear-desktop-linux#updating';
 const FIRST_CHECK_DELAY_MS = 60 * 1000;
 const CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
 
@@ -32,10 +33,10 @@ async function check(iconPath) {
 
   const notification = new Notification({
     title: `Linear ${latest} is available`,
-    body: `You're running ${current}. Rebuild or upgrade the linear-desktop-linux package to update.`,
+    body: `You're running ${current}. Run the installer again to update; click for details.`,
     icon: iconPath,
   });
-  notification.on('click', () => shell.openExternal('https://linear.app/changelog'));
+  notification.on('click', () => shell.openExternal(PROJECT_URL));
   notification.show();
   fs.writeFileSync(notifiedFile(), latest);
 }

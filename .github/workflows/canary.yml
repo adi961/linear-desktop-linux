@@ -1,0 +1,40 @@
+# Builds against Linear's latest release every week, so a Linear update that
+# breaks a patch is noticed before users run into it. Linear's app is only
+# downloaded onto the runner; nothing is uploaded or published.
+name: canary
+
+on:
+  schedule:
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Build the latest Linear (with AppImage)
+        run: pnpm build --appimage
+      - name: Install with get.sh in clean containers
+        run: |
+          pnpm package-builder
+          test/e2e/get-sh.sh ubuntu:24.04
+          test/e2e/get-sh.sh fedora:42
+          test/e2e/get-sh.sh ubuntu:24.04 --appimage
+      - name: Report a failure
+        if: failure() && github.event_name == 'schedule'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh issue create --title "Canary build failed ($(date -u +%Y-%m-%d))" \
+            --body "The weekly build against Linear's latest release failed: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}. A Linear update probably changed code that a patch in scripts/lib/patches.mjs expects."

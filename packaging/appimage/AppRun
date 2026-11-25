@@ -1,0 +1,128 @@
+#!/bin/sh
+# Entry point of the Linear AppImage.
+#
+#   Linear.AppImage [args]                       start Linear
+#   Linear.AppImage --integrate                  add Linear to the app menu, register linear:// links
+#   Linear.AppImage --unintegrate                undo --integrate
+#   Linear.AppImage --install-apparmor-profile   allow Chromium's sandbox on Ubuntu 24.04+ (uses sudo)
+#   Linear.AppImage --print-apparmor-profile     show that profile without installing it
+set -eu
+
+here=$(dirname -- "$(readlink -f -- "$0")")
+app="$here/usr/lib/linear/linear"
+# Overridable for tests.
+sysctl_dir=${LINEAR_APPRUN_SYSCTL_DIR:-/proc/sys}
+apparmor_dir=${LINEAR_APPRUN_APPARMOR_DIR:-/etc/apparmor.d}
+profile_name=linear-appimage
+data_dir=${XDG_DATA_HOME:-$HOME/.local/share}
+
+read_sysctl() {
+  cat "$sysctl_dir/$1" 2>/dev/null || echo "$2"
+}
+
+# Chromium's sandbox needs unprivileged user namespaces: AppImages are mounted
+# nosuid, so the setuid helper can't stand in. Ubuntu 24.04+ restricts them
+# through AppArmor unless a profile allows it.
+sandbox_blocked() {
+  [ "$(read_sysctl kernel/unprivileged_userns_clone 1)" = 0 ] && return 0
+  [ "$(read_sysctl user/max_user_namespaces 1)" = 0 ] && return 0
+  [ "$(read_sysctl kernel/apparmor_restrict_unprivileged_userns 0)" = 1 ] &&
+    [ ! -f "$apparmor_dir/$profile_name" ] && return 0
+  return 1
+}
+
+apparmor_profile() {
+  cat <<'EOF'
+# Lets the Linear AppImage use unprivileged user namespaces for Chromium's
+# sandbox. Installed by "Linear.AppImage --install-apparmor-profile".
+abi <abi/4.0>,
+include <tunables/global>
+
+profile linear-appimage /tmp/{.mount_*,appimage_extracted_*}/usr/lib/linear/linear flags=(unconfined) {
+  userns,
+
+  include if exists <local/linear-appimage>
+}
+EOF
+}
+
+explain_blocked() {
+  if [ "$(read_sysctl kernel/apparmor_restrict_unprivileged_userns 0)" = 1 ]; then
+    message="Linear can't start: AppArmor blocks the user namespaces Chromium's
+sandbox needs. Allow them for Linear once (needs sudo):
+
+  \"${APPIMAGE:-$0}\" --install-apparmor-profile
+
+Or install Linear with the regular installer instead of the AppImage."
+  else
+    message="Linear can't start: unprivileged user namespaces are disabled on this
+system, and an AppImage can't use Chromium's setuid sandbox helper.
+Install Linear with the regular installer instead of the AppImage."
+  fi
+  message="$message
+Details: https://github.com/adi961/linear-desktop-linux#sandbox"
+  printf '%s\n' "$message" >&2
+  # Started from an app launcher there's no terminal, so also show a dialog.
+  if [ ! -t 2 ]; then
+    if command -v zenity >/dev/null 2>&1; then
+      zenity --error --title=Linear --no-wrap --no-markup --text="$message" 2>/dev/null || true
+    elif command -v kdialog >/dev/null 2>&1; then
+      kdialog --title Linear --error "$message" 2>/dev/null || true
+    elif command -v notify-send >/dev/null 2>&1; then
+      notify-send --app-name=Linear "Linear can't start" "Run it from a terminal for details." || true
+    fi
+  fi
+}
+
+install_apparmor_profile() {
+  apparmor_profile | sudo tee "$apparmor_dir/$profile_name" >/dev/null
+  sudo apparmor_parser -r "$apparmor_dir/$profile_name"
+  echo "AppArmor profile installed. Linear can start now."
+}
+
+integrate() {
+  [ -n "${APPIMAGE:-}" ] || { echo "--integrate must be run from the AppImage" >&2; exit 1; }
+  # The path goes into the desktop entry's Exec in double quotes. Characters
+  # that would need escaping there are refused rather than escaped.
+  case "$APPIMAGE" in
+    *[\"\`\$\\\&\|]*)
+      echo "Move the AppImage to a path without \" \` \$ \\ & | characters, then run --integrate again." >&2
+      exit 1 ;;
+  esac
+  mkdir -p "$data_dir/applications" "$data_dir/icons"
+  sed "s|@EXEC@|\"$APPIMAGE\"|" "$here/usr/share/applications/linear.desktop" > "$data_dir/applications/linear.desktop"
+  cp -R "$here/usr/share/icons/." "$data_dir/icons/"
+  refresh_desktop_caches
+  if command -v xdg-mime >/dev/null 2>&1; then
+    mkdir -p "${XDG_CONFIG_HOME:-$HOME/.config}"
+    xdg-mime default linear.desktop x-scheme-handler/linear
+  fi
+  echo "Linear added to the app menu (launches $APPIMAGE)."
+}
+
+unintegrate() {
+  rm -f "$data_dir/applications/linear.desktop"
+  find "$data_dir/icons/hicolor" -path '*/apps/linear.png' -delete 2>/dev/null || true
+  refresh_desktop_caches
+  echo "Linear removed from the app menu."
+}
+
+refresh_desktop_caches() {
+  command -v update-desktop-database >/dev/null 2>&1 &&
+    update-desktop-database -q "$data_dir/applications" 2>/dev/null || true
+  command -v gtk-update-icon-cache >/dev/null 2>&1 &&
+    gtk-update-icon-cache -q -t -f "$data_dir/icons/hicolor" 2>/dev/null || true
+}
+
+case "${1:-}" in
+  --integrate) integrate; exit 0 ;;
+  --unintegrate) unintegrate; exit 0 ;;
+  --install-apparmor-profile) install_apparmor_profile; exit 0 ;;
+  --print-apparmor-profile) apparmor_profile; exit 0 ;;
+esac
+
+if sandbox_blocked; then
+  explain_blocked
+  exit 1
+fi
+exec "$app" "$@"

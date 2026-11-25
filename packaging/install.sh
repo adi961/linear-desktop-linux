@@ -47,12 +47,18 @@ if [ "$action" = uninstall ]; then
 fi
 
 [ -x "$here/app/linear" ] || { echo "app/linear not found next to install.sh" >&2; exit 1; }
+# The path goes into the desktop entry's Exec in double quotes. Characters
+# that would need escaping there are refused rather than escaped.
+case "$app_dir" in
+  *[\"\`\$\\\&\|]*) echo "can't install into $app_dir: it contains \" \` \$ \\ & or |" >&2; exit 1 ;;
+esac
 
 # Copy next to the target first: a failed copy leaves the old install intact.
 mkdir -p "$(dirname "$app_dir")"
 rm -rf "$app_dir.new"
 cp -a "$here/app" "$app_dir.new"
 cp "$here/BUILD-INFO.json" "$app_dir.new/"
+cp "$here/install.sh" "$app_dir.new/install.sh" # kept for: install.sh --uninstall
 rm -rf "$app_dir"
 mv "$app_dir.new" "$app_dir"
 
@@ -65,7 +71,7 @@ fi
 
 mkdir -p "$bin_dir" "$data_dir/applications"
 ln -sf "$app_dir/linear" "$bin_dir/linear"
-sed "s|@EXEC@|$app_dir/linear|" "$here/share/applications/linear.desktop" > "$data_dir/applications/linear.desktop"
+sed "s|@EXEC@|\"$app_dir/linear\"|" "$here/share/applications/linear.desktop" > "$data_dir/applications/linear.desktop"
 mkdir -p "$data_dir/icons"
 cp -R "$here/share/icons/." "$data_dir/icons/"
 refresh_caches
@@ -76,6 +82,7 @@ fi
 
 echo "Linear installed to $app_dir"
 echo "Start it from your app launcher or run: $bin_dir/linear"
+echo "Remove it with: $app_dir/install.sh --uninstall$([ "$mode" = system ] && echo ' --system')"
 
 # Warn if Chromium's sandbox will not be able to start.
 if [ "$mode" = user ]; then

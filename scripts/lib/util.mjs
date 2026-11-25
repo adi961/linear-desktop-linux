@@ -47,9 +47,9 @@ export async function download(url, dest) {
 
 // Runs a command, failing with its stderr. Throws a BuildError when the
 // command isn't installed.
-export async function run(cmd, args) {
+export async function run(cmd, args, { env } = {}) {
   try {
-    await execFileAsync(cmd, args, { maxBuffer: 64 * 1024 * 1024 });
+    await execFileAsync(cmd, args, { maxBuffer: 64 * 1024 * 1024, env: { ...process.env, ...env } });
   } catch (error) {
     if (error.code === 'ENOENT') throw new BuildError(`"${cmd}" is required but not installed`);
     throw new BuildError(`${cmd} ${args.join(' ')} failed:\n${error.stderr?.toString().trim() || error.message}`);
