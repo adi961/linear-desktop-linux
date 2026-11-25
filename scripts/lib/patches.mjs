@@ -42,6 +42,12 @@ export const MAIN_PATCHES = [
     after: 'function {{fn}}({{badge}}){if(process.platform===`linux`){require("../../linux/badge.js").setBadge({{badge}});return}if(process.platform===`darwin`){{electron}}.app.dock?.setBadge(',
   },
   {
+    id: 'menu-linux',
+    description: 'Add the Linux items (e.g. "Open Linear Links in This App") to the application menu',
+    before: '{{electron}}.Menu.setApplicationMenu({{electron}}.Menu.buildFromTemplate({{template}}({{electron}}.app,{{state}})))',
+    after: '{{electron}}.Menu.setApplicationMenu({{electron}}.Menu.buildFromTemplate((process.platform===`linux`?require("../../linux/menu.js").addLinuxItems:(t=>t))({{template}}({{electron}}.app,{{state}}))))',
+  },
+  {
     id: 'updater-disable-linux',
     description: 'Disable the auto-updater on Linux (linux/update-check.js replaces it)',
     before: 'get autoUpdateDisabled(){return ',

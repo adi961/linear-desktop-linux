@@ -13,6 +13,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
+const { childEnv } = require('./env.js');
 
 const shellQuote = (value) => `'${value.replace(/'/g, `'\\''`)}'`;
 
@@ -98,17 +99,6 @@ function resolveTerminal(terminalName, env = process.env) {
   return undefined;
 }
 
-// Electron's own variables would leak into the user's shell and change how
-// tools in it behave.
-function childEnv(env = process.env) {
-  const out = { ...env };
-  if (out.ORIGINAL_XDG_CURRENT_DESKTOP) out.XDG_CURRENT_DESKTOP = out.ORIGINAL_XDG_CURRENT_DESKTOP;
-  for (const key of Object.keys(out)) {
-    if (key.startsWith('ELECTRON_') || key === 'ORIGINAL_XDG_CURRENT_DESKTOP' || key === 'CHROME_DESKTOP') delete out[key];
-  }
-  return out;
-}
-
 // Resolves to Linear's launcher result shape: { success, error? }.
 async function openScript(scriptPath, terminalName) {
   const terminal = resolveTerminal(terminalName);
@@ -137,7 +127,6 @@ async function openScript(scriptPath, terminalName) {
 
 module.exports = {
   KNOWN_TERMINALS,
-  childEnv,
   getInstalledTerminalApps,
   openScript,
   resolveTerminal,

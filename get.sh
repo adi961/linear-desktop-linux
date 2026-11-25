@@ -10,6 +10,8 @@
 #   --appimage                 build ~/Applications/Linear.AppImage instead of installing
 #   --no-integrate             with --appimage: don't add it to the app menu
 #   --system                   install system-wide into /opt (uses sudo)
+#   --open-links               open Linear links from other apps (Slack, mail…) in Linear
+#   --no-open-links            stop doing that (also in Linear's File menu)
 #   --uninstall                remove Linear and the build cache (add --system for a system-wide install)
 #   --linear-version <x.y.z>   build that Linear version instead of the latest (needs --sha512)
 #   --sha512 <base64>          installer hash for --linear-version
@@ -134,13 +136,14 @@ uninstall() {
 }
 
 main() {
-  appimage=0 integrate=1 system=0 remove=0 linear_version="" sha512=""
+  appimage=0 integrate=1 system=0 remove=0 linear_version="" sha512="" links_option=""
   while [ $# -gt 0 ]; do
     case "$1" in
       --appimage) appimage=1 ;;
       --no-integrate) integrate=0 ;;
       --system) system=1 ;;
       --uninstall) remove=1 ;;
+      --open-links|--no-open-links) links_option=$1 ;;
       --linear-version) [ $# -ge 2 ] || die "$1 needs a value"; linear_version=$2; shift ;;
       --sha512) [ $# -ge 2 ] || die "$1 needs a value"; sha512=$2; shift ;;
       -h|--help) usage; exit 0 ;;
@@ -157,6 +160,7 @@ main() {
   esac
   [ "$(id -u)" -ne 0 ] || die "run this as your user, not root (--system uses sudo when needed)"
   [ "$appimage" = 0 ] || [ "$system" = 0 ] || die "--appimage and --system can't be combined"
+  [ "$system" = 0 ] || [ -z "$links_option" ] || die "link handling is per user: turn it on in Linear's File menu"
   cache="${XDG_CACHE_HOME:-$HOME/.cache}/linear-desktop-linux"
 
   if [ "$remove" = 1 ]; then
@@ -186,6 +190,7 @@ main() {
     chmod +x "$dir/Linear.AppImage.new"
     mv "$dir/Linear.AppImage.new" "$dir/Linear.AppImage"
     [ "$integrate" = 0 ] || run_appimage "$dir/Linear.AppImage" --integrate
+    [ -z "$links_option" ] || run_appimage "$dir/Linear.AppImage" "$links_option"
     say "Linear is at $dir/Linear.AppImage"
     if ! have_fuse; then
       say "note: FUSE isn't installed, so the AppImage unpacks itself on every start (slower). Install fuse3 to avoid that."
@@ -194,7 +199,8 @@ main() {
     if [ "$system" = 1 ]; then
       sudo "$dist/install.sh" --system
     else
-      "$dist/install.sh"
+      # shellcheck disable=SC2086 # empty or one option
+      "$dist/install.sh" $links_option
     fi
   fi
   rm -rf "$cache/dist" # the downloads stay cached for the next update

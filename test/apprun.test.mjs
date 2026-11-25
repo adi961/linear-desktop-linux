@@ -8,7 +8,7 @@ import { join, resolve } from 'node:path';
 const APPRUN = resolve('packaging/appimage/AppRun');
 // The commands AppRun needs. PATH is limited to these so no test can open a
 // real dialog (zenity, kdialog, notify-send) on the desktop.
-const TOOLS = ['sh', 'cat', 'dirname', 'readlink', 'sed', 'mkdir', 'cp', 'find', 'rm'];
+const TOOLS = ['sh', 'cat', 'dirname', 'readlink', 'sed', 'mkdir', 'cp', 'find', 'rm', 'tr', 'grep'];
 
 let dir;
 let appDir;
@@ -25,6 +25,7 @@ beforeEach(() => {
   cpSync(APPRUN, join(appDir, 'AppRun'));
   // Stand-in for Electron: records its arguments.
   writeFileSync(join(appDir, 'usr/lib/linear/linear'), `#!/bin/sh\necho "launched $*"\n`, { mode: 0o755 });
+  cpSync('packaging/linear-links', join(appDir, 'usr/lib/linear/linear-links'));
   cpSync('packaging/linear.desktop', join(appDir, 'usr/share/applications/linear.desktop'));
   writeFileSync(join(appDir, 'usr/share/icons/hicolor/256x256/apps/linear.png'), 'png');
 
@@ -84,16 +85,22 @@ test('the AppArmor profile covers both FUSE-mounted and self-extracted runs', ()
 });
 
 test('--integrate adds a desktop entry for the AppImage path; --unintegrate removes it', () => {
-  const appimage = '/home/me/My Apps/Linear.AppImage';
-  const r = appRun(['--integrate'], { APPIMAGE: appimage });
+  const r = appRun(['--integrate'], { APPIMAGE: '/home/me/Applications/Linear.AppImage' });
   assert.equal(r.status, 0, r.stderr);
   const desktop = readFileSync(join(env.HOME, '.local/share/applications/linear.desktop'), 'utf8');
-  assert.match(desktop, /^Exec="\/home\/me\/My Apps\/Linear.AppImage" %U$/m);
+  // Unquoted: xdg-utils (xdg-open on Sway and others) can't handle quotes.
+  assert.match(desktop, /^Exec=\/home\/me\/Applications\/Linear.AppImage %U$/m);
   assert.ok(existsSync(join(env.HOME, '.local/share/icons/hicolor/256x256/apps/linear.png')));
 
   assert.equal(appRun(['--unintegrate']).status, 0);
   assert.equal(existsSync(join(env.HOME, '.local/share/applications/linear.desktop')), false);
   assert.equal(existsSync(join(env.HOME, '.local/share/icons/hicolor/256x256/apps/linear.png')), false);
+});
+
+test('--integrate quotes a path with spaces, as the desktop entry spec requires', () => {
+  assert.equal(appRun(['--integrate'], { APPIMAGE: '/home/me/My Apps/Linear.AppImage' }).status, 0);
+  const desktop = readFileSync(join(env.HOME, '.local/share/applications/linear.desktop'), 'utf8');
+  assert.match(desktop, /^Exec="\/home\/me\/My Apps\/Linear.AppImage" %U$/m);
 });
 
 test('--integrate refuses paths that would need escaping in the desktop entry', () => {

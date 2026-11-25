@@ -10,6 +10,7 @@ as_root() {
       apt-get update -qq
       packages="curl ca-certificates"
       [ "$E2E_MODE" != --appimage ] || [ -n "$E2E_WITHOUT_FILE" ] || packages="$packages file"
+      [ "$E2E_MODE" != --open-links ] || packages="$packages xdg-utils"
       # shellcheck disable=SC2086 # word splitting intended
       DEBIAN_FRONTEND=noninteractive apt-get install -y -qq $packages >/dev/null ;;
     fedora*)
@@ -27,6 +28,12 @@ as_user() {
   apps="$HOME/.local/share/applications"
   mkdir -p "$cache/downloads"
   cp /e2e/seed/* "$cache/downloads/"
+  if [ "$E2E_MODE" = --open-links ]; then
+    # A browser that currently handles web links, as on a desktop.
+    mkdir -p "$apps" "$HOME/.config"
+    printf '[Desktop Entry]\nType=Application\nName=Browser\nExec=/bin/true %%u\nMimeType=x-scheme-handler/https;\n' > "$apps/browser.desktop"
+    xdg-mime default browser.desktop x-scheme-handler/http x-scheme-handler/https
+  fi
 
   # shellcheck disable=SC2086 # E2E_MODE is empty or one option
   sh /e2e/get.sh $E2E_MODE
@@ -37,11 +44,24 @@ as_user() {
     test -L "$HOME/.local/bin/linear"
   fi
   test -f "$HOME/.local/share/icons/hicolor/256x256/apps/linear.png"
+  if [ "$E2E_MODE" = --open-links ]; then
+    links="$HOME/.local/share/linear-desktop/linear-links"
+    [ "$("$links" --status)" = on ]
+    [ "$(xdg-mime query default x-scheme-handler/https)" = linear-links.desktop ]
+    [ "$("$links" --explain https://linear.app/acme/issue/A-1)" = "app linear://linear.app/acme/issue/A-1" ]
+    echo "== link handling on"
+  fi
+  # Unquoted Exec, or xdg-open (xdg-utils) can't start Linear for linear:// links.
+  grep -q "^Exec=$HOME/" "$apps/linear.desktop"
   echo "== installed OK: $(grep '^Exec=' "$apps/linear.desktop")"
 
   sh /e2e/get.sh --uninstall
   test ! -e "$apps/linear.desktop"
   test ! -e "$cache"
+  if [ "$E2E_MODE" = --open-links ]; then
+    [ "$(xdg-mime query default x-scheme-handler/https)" = browser.desktop ]
+    echo "== browser restored"
+  fi
   echo "== uninstalled OK"
 }
 

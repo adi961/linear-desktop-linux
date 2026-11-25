@@ -9,6 +9,7 @@ import { detectElectronVersion } from '../scripts/lib/sources.mjs';
 const require = createRequire(import.meta.url);
 const { badgeCount } = require('../src/app/badge.js');
 const { compareVersions, parseLatestYml } = require('../src/app/release-feed.js');
+const { childEnv } = require('../src/app/env.js');
 
 const LATEST_YML = `version: 1.32.8
 files:
@@ -58,4 +59,15 @@ test('Electron version is found across a read-chunk boundary', async () => {
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test('child environment drops Electron variables and restores the desktop', () => {
+  const env = childEnv({
+    PATH: '/bin',
+    ELECTRON_RUN_AS_NODE: '1',
+    CHROME_DESKTOP: 'linear.desktop',
+    XDG_CURRENT_DESKTOP: 'Unity',
+    ORIGINAL_XDG_CURRENT_DESKTOP: 'sway',
+  });
+  assert.deepEqual(env, { PATH: '/bin', XDG_CURRENT_DESKTOP: 'sway' });
 });

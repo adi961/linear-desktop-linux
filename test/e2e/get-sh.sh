@@ -2,7 +2,7 @@
 # End-to-end test of get.sh in a clean container: a fresh user on a distro
 # with only curl added installs Linear (or the AppImage), then uninstalls it.
 #
-#   test/e2e/get-sh.sh <image> [--appimage]
+#   test/e2e/get-sh.sh <image> [--appimage | --open-links]
 #
 # Serves the builder from dist/release (run scripts/package-builder.sh first).
 # Downloads in .cache are copied in to save bandwidth; get.sh verifies them

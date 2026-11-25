@@ -31,6 +31,7 @@ Options (pass them after `sh -s --`, e.g. `… | sh -s -- --system`):
 | `--appimage` | Build `~/Applications/Linear.AppImage` instead of installing, and add it to the app menu |
 | `--no-integrate` | With `--appimage`: don't add it to the app menu |
 | `--system` | Install for all users into `/opt` (asks for sudo) |
+| `--open-links` | Open Linear links from other apps in Linear (see [Linear links](#linear-links)) |
 | `--uninstall` | Remove Linear and the build cache (add `--system` for a system-wide install). Your Linear data in `~/.config/Linear` is kept |
 
 To read the script before running it: `curl -fsSLO https://raw.githubusercontent.com/adi961/linear-desktop-linux/main/get.sh`,
@@ -50,6 +51,25 @@ desktop integration:
 Notifications, the unread badge and `linear://` links need the menu entry that
 `--integrate` adds. Without FUSE installed the AppImage still runs, but unpacks
 itself on every start; install `fuse3` to avoid that.
+
+## Linear links
+
+Linear can open `linear.app` links you click in Slack, email or a terminal in
+the app instead of the browser. Turn it on in Linear's **File** menu
+(press Alt to show the menu bar): **Open Linear Links in This App**. Or install
+with `--open-links`.
+
+It registers a small link handler (`linear-links`) for web links: links to
+Linear pages (issues, projects, views, inbox, reviews…) go to the app, and
+everything else goes on to your browser, unchanged. Turning it off, or
+uninstalling, hands web links back to that browser. To see where a link would
+open: `~/.local/share/linear-desktop/linear-links --explain <url>`.
+
+Why not Linear's own "open in desktop app" setting? linear.app only hands links
+to the desktop app when the browser reports macOS or Windows, and the setting
+is stored in each browser rather than your account, so on Linux it can't take
+effect. This handler uses the same rules as linear.app, including leaving
+links the app itself sends to the browser where they are.
 
 ## Sandbox
 
@@ -91,7 +111,7 @@ sudo ./dist/linear-<version>-linux-x64/install.sh --system
 | Build: download and verify, extract (7-Zip compiled to WebAssembly), patch, repack, set Electron fuses | `scripts/build.mjs`, `scripts/lib/` |
 | Patches to Linear's minified main process: literal before/after pairs, each must match exactly once or the build fails | `scripts/lib/patches.mjs` |
 | Linux modules packed into the app at `/linux` | `src/app/` |
-| Install script, desktop entry, AppImage launcher | `packaging/` |
+| Install script, desktop entry, AppImage launcher, link handler | `packaging/` |
 
 What the patches change on Linux (macOS and Windows code is untouched):
 
@@ -105,6 +125,8 @@ What the patches change on Linux (macOS and Windows code is untouched):
   restored next launch, as on Windows.
 - **Updater**: off, replaced by the update notification
   (`src/app/update-check.js`).
+- **Menu**: adds **File → Open Linear Links in This App**
+  (`src/app/menu.js`, `src/app/links.js`).
 
 `src/app/bootstrap.js` also turns on Wayland window decorations and the
 GlobalShortcuts portal, and sets the window icon.
@@ -125,7 +147,7 @@ building it this way is in line with Linear's terms is for you to judge.
 ```sh
 pnpm test                                               # unit tests
 LINEAR_MAIN_JS=path/to/out/main/index.js pnpm test      # also patch Linear's real bundle
-pnpm package-builder && test/e2e/get-sh.sh ubuntu:24.04 [--appimage]   # installer in a clean container
+pnpm package-builder && test/e2e/get-sh.sh ubuntu:24.04 [--appimage | --open-links]   # installer in a clean container
 ```
 
 A weekly CI job builds against Linear's latest release and opens an issue if a

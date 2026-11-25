@@ -134,12 +134,15 @@ async function assembleRuntime({ electronZip, appAsar, dir }) {
   });
 }
 
-async function writeDesktopFiles({ icons, dir }) {
+// Desktop entry, icons, installer and the link handler (shipped in app/ so it
+// is also inside the AppImage, next to the binary).
+async function writeIntegrationFiles({ icons, dir }) {
   for (const [size, file] of Object.entries(icons)) {
     await cp(file, join(dir, 'share', 'icons', 'hicolor', `${size}x${size}`, 'apps', `${APP_ID}.png`));
   }
   await cp(join(ROOT, 'packaging', `${APP_ID}.desktop`), join(dir, 'share', 'applications', `${APP_ID}.desktop`));
   await cp(join(ROOT, 'packaging', 'install.sh'), join(dir, 'install.sh'));
+  await cp(join(ROOT, 'packaging', 'linear-links'), join(dir, 'app', 'linear-links'));
 }
 
 // Like Promise.all, but waits for every task to settle before failing, so the
@@ -184,7 +187,7 @@ async function build(opts) {
 
     log('assembling the Linux app');
     await assembleRuntime({ electronZip, appAsar, dir: join(stage, 'app') });
-    await writeDesktopFiles({ icons, dir: stage });
+    await writeIntegrationFiles({ icons, dir: stage });
     const info = { linearVersion: installer.version, electronVersion, arch: opts.arch, patches };
     await writeFile(join(stage, 'BUILD-INFO.json'), JSON.stringify(info, null, 2) + '\n');
 

@@ -130,14 +130,3 @@ test('openScript reports a missing terminal', async () => {
   assert.equal(result.success, false);
   assert.match(result.error, /No supported terminal/);
 });
-
-test('child environment drops Electron variables and restores the desktop', () => {
-  const env = terminal.childEnv({
-    PATH: '/bin',
-    ELECTRON_RUN_AS_NODE: '1',
-    CHROME_DESKTOP: 'linear.desktop',
-    XDG_CURRENT_DESKTOP: 'Unity',
-    ORIGINAL_XDG_CURRENT_DESKTOP: 'sway',
-  });
-  assert.deepEqual(env, { PATH: '/bin', XDG_CURRENT_DESKTOP: 'sway' });
-});

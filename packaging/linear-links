@@ -1,0 +1,157 @@
+#!/bin/sh
+# Opens Linear links in the Linear app and every other link in your browser.
+#
+#   linear-links URL            open URL
+#   linear-links --explain URL  print where URL would open, without opening it
+#   linear-links --enable APP   handle http/https links from now on; APP starts Linear
+#   linear-links --disable      give http/https links back to the previous browser
+#   linear-links --status       print "on" or "off" (on: http/https links come here)
+#
+# Why: linear.app only hands links to the desktop app on macOS and Windows (it
+# checks navigator.platform), so on Linux links from Slack, mail or a terminal
+# stay in the browser. This takes the place of that handoff before a browser
+# is involved.
+set -eu
+
+config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/linear-desktop-linux"
+config="$config_dir/links.conf"
+data_dir="${XDG_DATA_HOME:-$HOME/.local/share}"
+self_dir="$data_dir/linear-desktop-links"
+desktop_id=linear-links.desktop
+desktop_file="$data_dir/applications/$desktop_id"
+
+# The routes linear.app hands to the desktop app (L9 in linear.app's bundle):
+# /:workspace/<section>/*, plus review pages. Other linear.app pages (docs,
+# changelog, pricing, login…) stay in the browser.
+SECTIONS='agent-loops|agent-session|agent|ai-playground|api|approval|automation|automations|customer|customers|dashboard|dashboards|debug|developers|diary|diff|document|documents|drafts|enable-reviews|explore|feature-flags|focus|inbox|initiative-label|initiative|initiatives|issue-label|issue|issues|label|loop|loops|members|my-issues|new|pipeline|post|preferences|profiles|project-label|project|projects|pulse|release-pipelines|review|reviews|roadmap|roadmaps|search|signals|team|teams|update|view|views|widget|workbench|workspace'
+APP_PATHS="^/[^/]+/($SECTIONS)(/.*)?\$|^/review/[^/]+/[^/]+/pull/[^/]+(/[^/]+)?\$|^/review/gitlab(/.*)?\$"
+REVIEW_PATHS='^/[^/]+/[^/]+/pull/[0-9]+(/[^/]+)?$' # linear.review/<owner>/<repo>/pull/<n>
+
+# A path for a desktop entry's Exec. Quoted only when it has whitespace: the
+# spec allows both, but xdg-utils (used by xdg-open on many desktops, e.g.
+# Sway) doesn't remove quotes and then can't find the program.
+exec_path() {
+  case "$1" in
+    *[[:space:]]*) printf '"%s"' "$1" ;;
+    *) printf '%s' "$1" ;;
+  esac
+}
+
+die() { printf 'linear-links: %s\n' "$*" >&2; exit 1; }
+
+# Prints a value from the config; nothing if there's no config yet.
+config_value() { [ ! -f "$config" ] || sed -n "s/^$1=//p" "$config"; }
+
+is_on() {
+  [ -f "$config" ] && [ "$(xdg-mime query default x-scheme-handler/https 2>/dev/null)" = "$desktop_id" ]
+}
+
+# Prints "app <linear:// URL>" or "browser <URL>".
+route() {
+  url=$1
+  scheme=$(printf '%s' "${url%%://*}" | tr '[:upper:]' '[:lower:]')
+  rest=${url#*://}
+  host=$(printf '%s' "${rest%%[/?#]*}" | tr '[:upper:]' '[:lower:]')
+  tail=${rest#"${rest%%[/?#]*}"}           # path, query and fragment
+  path=${tail%%[?#]*}
+  path=$(printf '%s' "${path:-/}" | sed 's|//*$||; s|^$|/|')
+
+  # The app adds noRedirect=1 to Linear URLs it sends to the browser on
+  # purpose (linear.app's own handoff honours it too); they must stay there.
+  case "$tail" in *[?\&]noRedirect=*) echo "browser $url"; return ;; esac
+  case "$scheme" in http|https) ;; *) echo "browser $url"; return ;; esac
+
+  if [ "$host" = linear.app ] && printf '%s\n' "$path" | grep -Eiq "$APP_PATHS"; then
+    echo "app linear://linear.app${tail}"
+  elif [ "$host" = linear.review ] && printf '%s\n' "$path" | grep -Eq "$REVIEW_PATHS"; then
+    echo "app linear://linear.app/review${tail}"
+  else
+    echo "browser $url"
+  fi
+}
+
+# Launches a desktop entry (by id, e.g. google-chrome.desktop) with a URL.
+launch_desktop_entry() {
+  id=$1 url=$2
+  for dir in "$data_dir" $(printf '%s' "${XDG_DATA_DIRS:-/usr/local/share:/usr/share}" | tr ':' ' '); do
+    if [ -f "$dir/applications/$id" ]; then
+      if command -v gio >/dev/null 2>&1; then
+        exec gio launch "$dir/applications/$id" "$url"
+      fi
+      break
+    fi
+  done
+  command -v gtk-launch >/dev/null 2>&1 && exec gtk-launch "$id" "$url"
+  die "can't start $id to open $url (needs gio or gtk-launch)"
+}
+
+open_url() {
+  [ -f "$config" ] || die "link handling is off; enable it with: linear-links --enable <linear command>"
+  original=$1
+  decision=$(route "$original")
+  app=$(config_value app)
+  # A moved or deleted app (e.g. an AppImage) falls back to the browser.
+  if [ "${decision%% *}" = app ] && [ -x "$app" ]; then
+    exec "$app" "${decision#app }"
+  fi
+  launch_desktop_entry "$(config_value browser)" "$original"
+}
+
+enable_links() {
+  app=$1
+  command -v xdg-mime >/dev/null 2>&1 || die "xdg-mime is required (install xdg-utils)"
+  [ -x "$app" ] || die "not an executable: $app"
+  # Both paths end up in a desktop entry (Exec) or the config file.
+  case "$app$self_dir" in
+    *[\"\`\$\\\&\|]*) die "paths with \" \` \$ \\ & or | are not supported: $app, $self_dir" ;;
+  esac
+  # The browser is whatever handles web links now. While this handler is that
+  # (re-enabling after an update), it's the one saved when it was turned on.
+  browser=$(xdg-mime query default x-scheme-handler/https 2>/dev/null || true)
+  [ "$browser" != "$desktop_id" ] || browser=$(config_value browser)
+  [ -n "$browser" ] && [ "$browser" != "$desktop_id" ] ||
+    die "no browser is set for https links; set one first (xdg-settings set default-web-browser <browser>.desktop)"
+
+  # Copy this script to a stable place: it may be running from an AppImage.
+  mkdir -p "$self_dir" "$config_dir" "$data_dir/applications"
+  cp "$0" "$self_dir/linear-links.new"
+  chmod 755 "$self_dir/linear-links.new"
+  mv "$self_dir/linear-links.new" "$self_dir/linear-links"
+  printf 'app=%s\nbrowser=%s\n' "$app" "$browser" > "$config"
+  cat > "$desktop_file" <<EOF
+[Desktop Entry]
+Type=Application
+Name=Linear links
+Comment=Opens Linear links in the Linear app and other links in $browser
+Exec=$(exec_path "$self_dir/linear-links") %u
+NoDisplay=true
+MimeType=x-scheme-handler/http;x-scheme-handler/https;
+EOF
+  xdg-mime default "$desktop_id" x-scheme-handler/http x-scheme-handler/https
+  command -v update-desktop-database >/dev/null 2>&1 &&
+    update-desktop-database -q "$data_dir/applications" 2>/dev/null || true
+  echo "Linear links now open in Linear; other links open in $browser."
+}
+
+disable_links() {
+  [ -f "$config" ] || { echo "Link handling is already off."; return; }
+  browser=$(config_value browser)
+  if [ "$(xdg-mime query default x-scheme-handler/https 2>/dev/null || true)" = "$desktop_id" ]; then
+    xdg-mime default "$browser" x-scheme-handler/http x-scheme-handler/https
+  fi
+  rm -f "$desktop_file" "$config"
+  rm -rf "$self_dir"
+  command -v update-desktop-database >/dev/null 2>&1 &&
+    update-desktop-database -q "$data_dir/applications" 2>/dev/null || true
+  echo "Links open in $browser again."
+}
+
+case "${1:-}" in
+  --explain) [ $# -eq 2 ] || die "usage: linear-links --explain URL"; route "$2" ;;
+  --enable) [ $# -eq 2 ] || die "usage: linear-links --enable <linear command>"; enable_links "$2" ;;
+  --disable) disable_links ;;
+  --status) if is_on; then echo on; else echo off; fi ;;
+  -h|--help|'') sed -n '2,/^$/p' "$0" | sed 's/^# \{0,1\}//' ;;
+  -*) die "unknown option: $1" ;;
+  *) open_url "$1" ;;
+esac

@@ -8,7 +8,9 @@ import { applyPatches, MAIN_PATCHES, PatchError } from '../scripts/lib/patches.m
 // at every patch site, with different identifiers, so the patched result can
 // be executed.
 const FIXTURE = [
-  'const _={app:{dock:{setBadge(){throw Error(`dock used on linux`)}}}};',
+  'const _={app:{dock:{setBadge(){throw Error(`dock used on linux`)}}},Menu:{setApplicationMenu(m){_.menu=m},buildFromTemplate(t){return t}}};',
+  'function uR(a,r){return[{label:`File`,submenu:[{label:`New Window`}]}]}',
+  'function kH(r){_.Menu.setApplicationMenu(_.Menu.buildFromTemplate(uR(_.app,r)))}',
   'const l={execFile(){throw Error(`macOS open used on linux`)}};',
   'var aB,TH=process.platform===`darwin`,EH=process.platform===`win32`,DH=1280,OH=800;',
   'function qH(e){if(process.platform===`darwin`)_.app.dock?.setBadge(``+(e||``));else if(process.platform===`win32`){}}',
@@ -19,7 +21,7 @@ const FIXTURE = [
   'UV=class extends BV{};',
   'var WV=class e{static async run(){if(process.platform!==`darwin`&&process.platform!==`win32`)return{success:!1,error:`Terminal commands are only supported on macOS and Windows`};return{success:!0}}',
   'static create(e,t){if(process.platform===`win32`)return new UV(e,t);if(process.platform===`darwin`)return new VV(e,t);throw Error(`Unsupported platform for terminal launch: ${process.platform}`)}};',
-  'module.exports={TH,EH,qH,Upd,VV,UV,WV};',
+  'module.exports={TH,EH,qH,Upd,VV,UV,WV,kH,electron:_};',
 ].join('');
 
 const plain = (value) => JSON.parse(JSON.stringify(value));
@@ -30,6 +32,7 @@ function load(source, platform) {
   const calls = [];
   const linuxModules = {
     '../../linux/badge.js': { setBadge: (v) => calls.push(['setBadge', v]) },
+    '../../linux/menu.js': { addLinuxItems: (t) => (t[0].submenu.push({ label: 'linux item' }), t) },
     '../../linux/terminal.js': {
       getInstalledTerminalApps: () => [{ id: 'foot', name: 'foot' }],
       openScript: async (script, app) => (calls.push(['openScript', script, app]), { success: true }),
@@ -58,6 +61,8 @@ test('patched code takes the Linux branches on linux', async () => {
   assert.deepEqual(m.calls.at(-1), ['openScript', '/tmp/x.command', 'foot']);
   assert.deepEqual(plain(await m.WV.run()), { success: true });
   assert.ok(m.WV.create({}, '/tmp') instanceof m.VV, 'Linux should use the POSIX launcher');
+  m.kH({});
+  assert.deepEqual(plain(m.electron.menu[0].submenu.map((i) => i.label)), ['New Window', 'linux item']);
 });
 
 test('patched code is unchanged on macOS and Windows', () => {
@@ -67,6 +72,8 @@ test('patched code is unchanged on macOS and Windows', () => {
   assert.deepEqual(plain(mac.VV.getInstalledTerminalApps()), [{ id: 'mac' }]);
   assert.ok(mac.WV.create({}, '/tmp') instanceof mac.VV);
   assert.equal(new mac.Upd().autoUpdateDisabled, false);
+  mac.kH({});
+  assert.deepEqual(plain(mac.electron.menu[0].submenu.map((i) => i.label)), ['New Window']);
 
   const win = load(source, 'win32');
   assert.equal(win.EH, true);

@@ -3,7 +3,8 @@
 // Entry point of the repackaged app (package.json "main"). Sets up the Linux
 // desktop integration that doesn't need to hook into Linear's code, then
 // starts Linear's main process. The hooks into Linear's code (terminal
-// launcher, unread badge) are build-time patches; see scripts/lib/patches.mjs.
+// launcher, unread badge, menu) are build-time patches; see
+// scripts/lib/patches.mjs.
 
 const path = require('node:path');
 const { app } = require('electron');
@@ -17,6 +18,9 @@ const ICON_PATH = path.join(__dirname, 'icon.png');
 const features = new Set(app.commandLine.getSwitchValue('enable-features').split(',').filter(Boolean));
 features.add('WaylandWindowDecorations').add('GlobalShortcutsPortal');
 app.commandLine.appendSwitch('enable-features', [...features].join(','));
+
+// State of "Open Linear Links in This App" for the first application menu.
+require('./links.js').refresh();
 
 // Wayland takes the icon from the desktop entry; X11 needs it on the window.
 app.on('browser-window-created', (_event, win) => win.setIcon(ICON_PATH));

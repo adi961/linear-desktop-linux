@@ -3,18 +3,31 @@
 #
 #   Linear.AppImage [args]                       start Linear
 #   Linear.AppImage --integrate                  add Linear to the app menu, register linear:// links
-#   Linear.AppImage --unintegrate                undo --integrate
+#   Linear.AppImage --unintegrate                undo --integrate (and --open-links)
+#   Linear.AppImage --open-links                 open Linear links from other apps in Linear
+#   Linear.AppImage --no-open-links              undo --open-links (also in Linear's File menu)
 #   Linear.AppImage --install-apparmor-profile   allow Chromium's sandbox on Ubuntu 24.04+ (uses sudo)
 #   Linear.AppImage --print-apparmor-profile     show that profile without installing it
 set -eu
 
 here=$(dirname -- "$(readlink -f -- "$0")")
 app="$here/usr/lib/linear/linear"
+links="$here/usr/lib/linear/linear-links"
 # Overridable for tests.
 sysctl_dir=${LINEAR_APPRUN_SYSCTL_DIR:-/proc/sys}
 apparmor_dir=${LINEAR_APPRUN_APPARMOR_DIR:-/etc/apparmor.d}
 profile_name=linear-appimage
 data_dir=${XDG_DATA_HOME:-$HOME/.local/share}
+
+# A path for a desktop entry's Exec. Quoted only when it has whitespace: the
+# spec allows both, but xdg-utils (used by xdg-open on many desktops, e.g.
+# Sway) doesn't remove quotes and then can't find the program.
+exec_path() {
+  case "$1" in
+    *[[:space:]]*) printf '"%s"' "$1" ;;
+    *) printf '%s' "$1" ;;
+  esac
+}
 
 read_sysctl() {
   cat "$sysctl_dir/$1" 2>/dev/null || echo "$2"
@@ -82,25 +95,29 @@ install_apparmor_profile() {
 
 integrate() {
   [ -n "${APPIMAGE:-}" ] || { echo "--integrate must be run from the AppImage" >&2; exit 1; }
-  # The path goes into the desktop entry's Exec in double quotes. Characters
-  # that would need escaping there are refused rather than escaped.
+  # The path goes into the desktop entry's Exec. Characters that would need
+  # escaping there are refused rather than escaped.
   case "$APPIMAGE" in
     *[\"\`\$\\\&\|]*)
       echo "Move the AppImage to a path without \" \` \$ \\ & | characters, then run --integrate again." >&2
       exit 1 ;;
   esac
   mkdir -p "$data_dir/applications" "$data_dir/icons"
-  sed "s|@EXEC@|\"$APPIMAGE\"|" "$here/usr/share/applications/linear.desktop" > "$data_dir/applications/linear.desktop"
+  sed "s|@EXEC@|$(exec_path "$APPIMAGE")|" "$here/usr/share/applications/linear.desktop" > "$data_dir/applications/linear.desktop"
   cp -R "$here/usr/share/icons/." "$data_dir/icons/"
   refresh_desktop_caches
   if command -v xdg-mime >/dev/null 2>&1; then
     mkdir -p "${XDG_CONFIG_HOME:-$HOME/.config}"
     xdg-mime default linear.desktop x-scheme-handler/linear
   fi
+  # Already opening links in Linear: refresh the handler (it keeps a copy of
+  # linear-links), e.g. after an update.
+  [ "$("$links" --status)" = off ] || "$links" --enable "$APPIMAGE" >/dev/null
   echo "Linear added to the app menu (launches $APPIMAGE)."
 }
 
 unintegrate() {
+  "$links" --disable >/dev/null
   rm -f "$data_dir/applications/linear.desktop"
   find "$data_dir/icons/hicolor" -path '*/apps/linear.png' -delete 2>/dev/null || true
   refresh_desktop_caches
@@ -117,6 +134,8 @@ refresh_desktop_caches() {
 case "${1:-}" in
   --integrate) integrate; exit 0 ;;
   --unintegrate) unintegrate; exit 0 ;;
+  --open-links) "$links" --enable "${APPIMAGE:?--open-links must be run from the AppImage}"; exit 0 ;;
+  --no-open-links) "$links" --disable; exit 0 ;;
   --install-apparmor-profile) install_apparmor_profile; exit 0 ;;
   --print-apparmor-profile) apparmor_profile; exit 0 ;;
 esac
