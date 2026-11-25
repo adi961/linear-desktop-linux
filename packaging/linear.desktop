@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Name=Linear
+GenericName=Issue Tracker
+Comment=Plan and build products (unofficial Linux build of the Linear desktop app)
+Exec=@EXEC@ %U
+Icon=linear
+Terminal=false
+Categories=Office;ProjectManagement;
+Keywords=issues;projects;tracker;
+MimeType=x-scheme-handler/linear;
+StartupNotify=true
+StartupWMClass=linear

@@ -1,0 +1,19 @@
+{
+  "name": "linear-desktop-linux",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Repackages the official Linear desktop app (Windows build) for Linux",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "test": "node --test test/"
+  },
+  "devDependencies": {
+    "@electron/asar": "^4.3.4",
+    "@electron/fuses": "^2.1.3"
+  }
+}
