@@ -11,7 +11,7 @@
   },
   "scripts": {
     "build": "node scripts/build.mjs",
-    "test": "node --test test/",
+    "test": "node --test test/*.test.mjs",
     "package-builder": "scripts/package-builder.sh"
   },
   "dependencies": {
